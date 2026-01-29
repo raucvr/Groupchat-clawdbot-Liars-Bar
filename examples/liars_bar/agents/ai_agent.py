@@ -18,7 +18,7 @@ from game.models import (
     DeckAction,
     DiceAction,
 )
-from memory.memorize import retrieve_memories, create_bluff_event, create_challenge_event
+from memory.memorize import retrieve_memories, create_challenge_event
 from .base_agent import BaseAgent
 from .personalities import get_agent_config, get_system_prompt, AgentConfig
 
@@ -46,12 +46,20 @@ class AIAgent(BaseAgent):
             player: Player model
             api_key: OpenRouter API key
             agent_key: Key to agent configuration (claude, gpt, llama)
+
+        Raises:
+            ValueError: If agent_key is not a valid configuration key
         """
         super().__init__(player)
         self.api_key = api_key
         self.agent_key = agent_key
-        self.config: AgentConfig = get_agent_config(agent_key) or {}
-        self.model_id = self.config.get("model_id", "anthropic/claude-3.5-sonnet")
+
+        config = get_agent_config(agent_key)
+        if config is None:
+            raise ValueError(f"Invalid agent_key: {agent_key}. Valid keys are: claude, gpt, llama")
+        self.config: AgentConfig = config
+
+        self.model_id = self.config["model_id"]
         self.base_url = "https://openrouter.ai/api/v1"
 
         # Track events for memorization
@@ -101,7 +109,20 @@ class AIAgent(BaseAgent):
                     return ""
 
                 data = response.json()
-                return data["choices"][0]["message"]["content"]
+
+                # Safely extract content from response
+                choices = data.get("choices")
+                if not choices or not isinstance(choices, list) or len(choices) == 0:
+                    print(f"[AI] Invalid response: no choices in response")
+                    return ""
+
+                message = choices[0].get("message")
+                if not message or not isinstance(message, dict):
+                    print(f"[AI] Invalid response: no message in choice")
+                    return ""
+
+                content = message.get("content", "")
+                return content if isinstance(content, str) else ""
 
             except Exception as e:
                 print(f"[AI] Query failed: {e}")
@@ -123,20 +144,54 @@ class AIAgent(BaseAgent):
         return "Relevant memories from past games:\n" + "\n".join(memory_texts)
 
     def _parse_json_from_response(self, response: str) -> dict[str, Any]:
-        """Extract JSON from LLM response"""
-        # Try to find JSON in the response
-        json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
-        if json_match:
-            try:
-                return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                pass
-
-        # Try parsing the whole response
+        """Extract JSON from LLM response, handling nested structures"""
+        # Try parsing the whole response first
         try:
             return json.loads(response)
         except json.JSONDecodeError:
             pass
+
+        # Find JSON by matching balanced braces
+        start_idx = response.find('{')
+        if start_idx == -1:
+            return {}
+
+        # Track brace depth to find complete JSON object
+        depth = 0
+        end_idx = start_idx
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(response[start_idx:], start=start_idx):
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    end_idx = i
+                    break
+
+        if depth == 0 and end_idx > start_idx:
+            json_str = response[start_idx:end_idx + 1]
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
 
         return {}
 

@@ -137,19 +137,6 @@ class GameState(BaseModel):
         else:
             return self.dice_actions[-1] if self.dice_actions else None
 
-    def get_previous_player(self) -> Player | None:
-        """Get the player who played before the current player"""
-        active = self.get_active_players()
-        if len(active) < 2:
-            return None
-
-        current_idx = next(
-            (i for i, p in enumerate(active) if p.id == self.get_current_player().id),
-            0
-        )
-        prev_idx = (current_idx - 1) % len(active)
-        return active[prev_idx]
-
 
 class GameEvent(BaseModel):
     """Generic game event for logging and memory"""

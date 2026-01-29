@@ -26,9 +26,6 @@ from agents.human_player import HumanPlayer
 from agents.ai_agent import AIAgent
 from agents.personalities import AGENT_CONFIGS
 from memory.memorize import (
-    create_bluff_event,
-    create_challenge_event,
-    create_elimination_event,
     create_game_over_event,
     memorize_game_events,
 )
